@@ -2,13 +2,20 @@ import scala.language.dynamics
 import scala.language.experimental.macros
 import scala.reflect.macros.whitebox
 
-case class Multiply(first: Any, second: Any)
 
-case class Power(first: Any, second: Any)
+sealed trait Component
 
-case class Add(first: Any, second: Any)
+case class Multiply(first: Component, second: Component) extends Component
 
-case class Variable(name: String)
+case class Power(first: Component, second: Component) extends Component
+
+case class Add(first: Component, second: Component) extends Component
+
+case class Variable(name: String) extends Component
+
+case class DoubleConstant(value: Double) extends Component {
+  override def toString: String = value.toString
+}
 
 
 object Macros {
@@ -25,36 +32,51 @@ object Macros {
       }
     }
 
-    def extractComponent(tree: c.Tree): Any = tree match {
-      case Apply(SelectJavaMathPow(), List(a, b)) => Power(extractComponent(a), extractComponent(b))
+    def getComponent(tree: c.Tree): Component = tree match {
+      /*variable*/
       case Ident(TermName(x)) => Variable(x)
-      case Literal(Constant(a)) => a.toString.toDouble
-      case Apply(Select(somethingElse, TermName("$times")), List(args)) =>
-        Multiply(extractComponent(args), extractComponent(somethingElse))
-    }
-
-    def extractComponents(tree: c.Tree): List[Any] = tree match {
-
-      /*addition*/
-      case Apply(Select(nextTree, TermName("$plus")), List(arg)) =>
-        extractComponent(arg) :: extractComponents(nextTree)
-
+      /*constant*/
+      case Literal(Constant(a)) => DoubleConstant(a.toString.toDouble)
       /*multiplication*/
       case Apply(Select(somethingElse, TermName("$times")), List(args)) =>
-        (extractComponent(args), extractComponent(somethingElse)) :: Nil
-
-      /*single literal*/
-      case identOrLiteral => extractComponent(identOrLiteral) :: Nil
+        Multiply(getComponent(args), getComponent(somethingElse))
+      /*exponentation*/
+      case Apply(SelectJavaMathPow(), List(a, b)) =>
+        Power(getComponent(a), getComponent(b))
     }
 
+    def extractComponents(tree: c.Tree): List[Component] = tree match {
+      /*addition*/
+      case Apply(Select(nextTree, TermName("$plus")), List(arg)) =>
+        getComponent(arg) :: extractComponents(nextTree)
+      /*single literal*/
+      case identOrLiteral => getComponent(identOrLiteral) :: Nil
+    }
 
-    val Function(_ /*todo*/ , funcBody) = f.tree
+    val Function(List(ValDef(_, TermName(argName), _, _)), funcBody) = f.tree
 
-    println(extractComponents(funcBody))
+    val components = extractComponents(funcBody)
 
-    val xx: c.universe.Tree = Apply(Select(Ident(TermName("x")), TermName("$plus")), List(Literal(Constant(5))))
+    /*this part is actually unnecessary*/
+    println("is function valid? " + components.forall {
+      case Variable(name) if name != argName => false
+      case _ => true
+    })
 
-    val z = q"(x: Double) => $xx"
+    println("Body: " + components)
+
+    def getTreeOf(comp: Component): c.Tree = comp match {
+      case Variable(a) => Ident(TermName(a))
+      case DoubleConstant(a) => q"$a"
+      case Multiply(a, b) => q"${getTreeOf(a)} * ${getTreeOf(b)}"
+      case Power(a, b) => q"Math.pow(${getTreeOf(a)}, ${getTreeOf(b)})"
+      case Add(a, b) => q"${getTreeOf(a)} + ${getTreeOf(b)}"
+    }
+
+    val transformedComponents = components.map(comp => getTreeOf(comp)).reduce((a, b) => q"$a + $b")
+
+    val z = q"(x: Double) => $transformedComponents"
+
     c.Expr(z)
   }
 
