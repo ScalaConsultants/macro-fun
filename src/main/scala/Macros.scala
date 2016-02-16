@@ -50,6 +50,10 @@ object Macros {
       /*exponentation*/
       case Apply(SelectJavaMathPow(), List(a, b)) =>
         Power(getComponent(a), getComponent(b))
+      case Select(x, TermName("unary_$minus")) =>
+        Negate(getComponent(x))
+      case Select(x, TermName("unary_$plus")) =>
+        getComponent(x)
     }
 
     def extractComponents(tree: c.Tree): List[Component] = tree match {
