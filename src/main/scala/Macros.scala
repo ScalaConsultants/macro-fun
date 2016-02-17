@@ -158,17 +158,4 @@ object Macros {
 
     c.Expr(q"""println("hello " + ${s.tree} + "!")""")
   }
-
-  def debug[T](param: T) = macro debugImpl[T]
-
-  def debugImpl[T](c: blackbox.Context)(param: c.Expr[T]): c.Expr[Unit] = {
-    import c.universe._
-
-    //    c.Expr(q"""println(${showRaw(param.tree)} + " = " + $param)""")
-    val z = c.Expr[String](Literal(Constant(showRaw(param.tree))))
-
-    reify {
-      println(z.splice + " = " + param.splice)
-    }
-  }
 }
