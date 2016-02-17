@@ -6,57 +6,20 @@ sealed trait Component {
   def toTree(implicit c: blackbox.Context): c.Tree
 }
 
-case class Variable(name: String) extends Component {
-  override def toTree(implicit c: blackbox.Context): c.Tree = {
-    import c.universe._
-    Ident(TermName(name))
-  }
-}
-
-case class DoubleConstant(value: Double) extends Component {
-  override def toTree(implicit c: blackbox.Context): c.Tree = {
-    import c.universe._
-    Literal(Constant(value))
-  }
-}
-
 object Scalac {
 
-  private def getComponent(tree: Trees#Tree)(implicit c: blackbox.Context): Component = {
-    import c.universe._
-    tree match {
-      case Ident(TermName(x)) => Variable(x)
-      case Literal(Constant(a)) => DoubleConstant(a.toString.toDouble)
-    }
-  }
-
   private def extractComponents(tree: Trees#Tree)(implicit c: blackbox.Context): List[Component] = {
-    import c.universe._
-    tree match {
-      case q"$a + $b" => getComponent(a) :: getComponent(b) :: Nil
-      case identOrLiteral => getComponent(identOrLiteral) :: Nil
-    }
+
   }
 
   private def derive(comp: Component)(implicit c: blackbox.Context): c.Tree = {
-    import c.universe._
-    comp match {
-      case Variable(a) => q"1"
-      case DoubleConstant(a) => q"0.0"
-    }
+
   }
 
   def derivative(f: Double => Double): Double => Double = macro derivativeImpl
 
   def derivativeImpl(c: blackbox.Context)(f: c.Expr[Double => Double]): c.Expr[Double => Double] = {
-    import c.universe._
 
-    val Function(List(ValDef(_, name, _, _)), funcBody) = f.tree
-
-    val components = extractComponents(funcBody)(c)
-    val transformedComponents = components.map(comp => derive(comp)(c)).reduce((a, b) => q"$a + $b")
-
-    c.Expr(q"($name: Double) => $transformedComponents")
   }
 }
 
