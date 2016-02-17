@@ -38,7 +38,7 @@ object Scalac {
   private def extractComponents(tree: Trees#Tree)(implicit c: blackbox.Context): List[Component] = {
     import c.universe._
     tree match {
-      case q"$a + $b" => getComponent(a) :: getComponent(b) :: Nil
+      case q"$nextTree + $arg" =>  getComponent(arg) :: extractComponents(nextTree)
       case somethingElse => getComponent(somethingElse) :: Nil
     }
   }
