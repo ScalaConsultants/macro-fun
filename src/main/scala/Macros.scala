@@ -48,14 +48,11 @@ case class DoubleConstant(value: Double) extends Component {
   }
 }
 
-object Macros {
+object Scalac {
 
-  def derivative(f: Double => Double): Double => Double = macro derivativeImpl
-
-  def derivativeImpl(c: blackbox.Context)(f: c.Expr[Double => Double]): c.Expr[Double => Double] = {
+  def getComponent(tree: Trees#Tree)(implicit c: blackbox.Context): Component = {
     import c.universe._
-
-    def getComponent(tree: Trees#Tree): Component = tree match {
+    tree match {
       case Ident(TermName(x)) => Variable(x)
       case Literal(Constant(a)) => DoubleConstant(a.toString.toDouble)
       case q"-$x" => Negate(getComponent(x))
@@ -65,37 +62,49 @@ object Macros {
       case q"$a * $b" => Multiply(getComponent(a), getComponent(b))
       case q"java.this.lang.Math.pow($a, $b)" => Power(getComponent(a), getComponent(b))
     }
+  }
 
-    def extractComponents(tree: Trees#Tree): List[Component] = tree match {
+  def extractComponents(tree: Trees#Tree)(implicit c: blackbox.Context): List[Component] = {
+    import c.universe._
+    tree match {
       case q"$nextTree + $arg" =>
         getComponent(arg) :: extractComponents(nextTree)
       case q"$nextTree - $arg" =>
         Negate(getComponent(arg)) :: extractComponents(nextTree)
       case identOrLiteral => getComponent(identOrLiteral) :: Nil
     }
+  }
 
-    val Function(List(ValDef(_, name, _, _)), funcBody) = f.tree
-
-    val components = extractComponents(funcBody)
-
-    def derive(comp: Component): c.Tree = comp match {
+  def derive(comp: Component)(implicit c: blackbox.Context): c.Tree = {
+    import c.universe._
+    comp match {
       case Variable(a) => q"1"
       case DoubleConstant(a) => q"0.0"
       case Negate(a) => q"-${derive(a)}"
       case Add(a, b) => q"${derive(a)} + ${derive(b)}"
       case Multiply(a, b) =>
-        q"${a.toTree(c)} * ${derive(b)} + ${derive(a)} * ${b.toTree(c)}"
+        q"${a.toTree} * ${derive(b)} + ${derive(a)} * ${b.toTree}"
       case Power(a@Variable(_), b@DoubleConstant(_)) =>
-        q"${a.toTree(c)} * Math.pow(${a.toTree(c)}, ${b.toTree(c)} - 1)"
+        q"${a.toTree} * Math.pow(${a.toTree}, ${b.toTree} - 1)"
       case expr => c.abort(c.enclosingPosition, s"Can't derive expression: $expr")
     }
-
-    val transformedComponents = components.map(comp => derive(comp)).reduce((a, b) => q"$a + $b")
-
-    val z = q"($name: Double) => $transformedComponents"
-    println(show(z))
-    c.Expr(z)
   }
+
+  def derivative(f: Double => Double): Double => Double = macro derivativeImpl
+
+  def derivativeImpl(c: blackbox.Context)(f: c.Expr[Double => Double]): c.Expr[Double => Double] = {
+    import c.universe._
+
+    val Function(List(ValDef(_, name, _, _)), funcBody) = f.tree
+
+    val components = extractComponents(funcBody)(c)
+    val transformedComponents = components.map(comp => derive(comp)(c)).reduce((a, b) => q"$a + $b")
+
+    c.Expr(q"($name: Double) => $transformedComponents")
+  }
+}
+
+object Macros {
 
   def hello = macro helloImpl
 
