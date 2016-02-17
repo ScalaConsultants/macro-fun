@@ -20,6 +20,13 @@ case class Multiply(first: Component, second: Component) extends Component {
   }
 }
 
+case class Add(first: Component, second: Component) extends Component {
+  override def toTree(implicit c: blackbox.Context): c.Tree = {
+    import c.universe._
+    q"${first.toTree} + ${second.toTree}"
+  }
+}
+
 case class Power(first: Component, second: Component) extends Component {
   override def toTree(implicit c: blackbox.Context): c.Tree = {
     import c.universe._
@@ -53,6 +60,8 @@ object Macros {
       case Literal(Constant(a)) => DoubleConstant(a.toString.toDouble)
       case q"-$x" => Negate(getComponent(x))
       case q"+$x" => getComponent(x)
+      case q"$a + $b" => Add(getComponent(a), getComponent(b))
+      case q"$a - $b" => Add(getComponent(a), Negate(getComponent(b)))
       case q"$a * $b" => Multiply(getComponent(a), getComponent(b))
       case q"java.this.lang.Math.pow($a, $b)" => Power(getComponent(a), getComponent(b))
     }
@@ -73,6 +82,7 @@ object Macros {
       case Variable(a) => q"1"
       case DoubleConstant(a) => q"0.0"
       case Negate(a) => q"-${derive(a)}"
+      case Add(a, b) => q"${derive(a)} + ${derive(b)}"
       case Multiply(a, b) =>
         q"${a.toTree(c)} * ${derive(b)} + ${derive(a)} * ${b.toTree(c)}"
       case Power(a@Variable(_), b@DoubleConstant(_)) =>
