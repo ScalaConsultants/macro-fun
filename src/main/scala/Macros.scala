@@ -4,6 +4,8 @@ import scala.reflect.macros.blackbox
 
 sealed trait Component {
   def toTree(implicit c: blackbox.Context): c.Tree
+
+  def derive: Component
 }
 
 case class Negate(value: Component) extends Component {
@@ -11,6 +13,8 @@ case class Negate(value: Component) extends Component {
     import c.universe._
     q"-${value.toTree}"
   }
+
+  override def derive: Component = Negate(value.derive)
 }
 
 case class Multiply(first: Component, second: Component) extends Component {
@@ -18,6 +22,8 @@ case class Multiply(first: Component, second: Component) extends Component {
     import c.universe._
     q"${first.toTree} * ${second.toTree}"
   }
+
+  override def derive: Component = Add(Multiply(first, second.derive), Multiply(first.derive, second))
 }
 
 case class Add(first: Component, second: Component) extends Component {
@@ -25,12 +31,18 @@ case class Add(first: Component, second: Component) extends Component {
     import c.universe._
     q"${first.toTree} + ${second.toTree}"
   }
+
+  override def derive: Component = Add(first.derive, second.derive)
 }
 
 case class Power(first: Component, second: Component) extends Component {
   override def toTree(implicit c: blackbox.Context): c.Tree = {
     import c.universe._
     q"Math.pow(${first.toTree}, ${second.toTree})"
+  }
+
+  override def derive: Component = this match {
+    case Power(Variable(_), DoubleConstant(b)) => Multiply(second, Power(first, DoubleConstant(b - 1)))
   }
 }
 
@@ -39,6 +51,8 @@ case class Variable(name: String) extends Component {
     import c.universe._
     Ident(TermName(name))
   }
+
+  override def derive: Component = DoubleConstant(1)
 }
 
 case class DoubleConstant(value: Double) extends Component {
@@ -46,10 +60,11 @@ case class DoubleConstant(value: Double) extends Component {
     import c.universe._
     Literal(Constant(value))
   }
+
+  override def derive: Component = DoubleConstant(0)
 }
 
 object Scalac {
-
   def getComponent(tree: Trees#Tree)(implicit c: blackbox.Context): Component = {
     import c.universe._
     tree match {
@@ -71,22 +86,7 @@ object Scalac {
         getComponent(arg) :: extractComponents(nextTree)
       case q"$nextTree - $arg" =>
         Negate(getComponent(arg)) :: extractComponents(nextTree)
-      case identOrLiteral => getComponent(identOrLiteral) :: Nil
-    }
-  }
-
-  def derive(comp: Component)(implicit c: blackbox.Context): c.Tree = {
-    import c.universe._
-    comp match {
-      case Variable(a) => q"1"
-      case DoubleConstant(a) => q"0.0"
-      case Negate(a) => q"-${derive(a)}"
-      case Add(a, b) => q"${derive(a)} + ${derive(b)}"
-      case Multiply(a, b) =>
-        q"${a.toTree} * ${derive(b)} + ${derive(a)} * ${b.toTree}"
-      case Power(a@Variable(_), b@DoubleConstant(_)) =>
-        q"${a.toTree} * Math.pow(${a.toTree}, ${b.toTree} - 1)"
-      case expr => c.abort(c.enclosingPosition, s"Can't derive expression: $expr")
+      case somethingElse => getComponent(somethingElse) :: Nil
     }
   }
 
@@ -98,7 +98,7 @@ object Scalac {
     val Function(List(ValDef(_, name, _, _)), funcBody) = f.tree
 
     val components = extractComponents(funcBody)(c)
-    val transformedComponents = components.map(comp => derive(comp)(c)).reduce((a, b) => q"$a + $b")
+    val transformedComponents = components.map(_.derive.toTree(c)).reduce((a, b) => q"$a + $b")
 
     c.Expr(q"($name: Double) => $transformedComponents")
   }
