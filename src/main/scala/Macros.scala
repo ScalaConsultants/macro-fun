@@ -127,7 +127,7 @@ object Macros {
   def hello2Impl(c: blackbox.Context)(s: c.Expr[String]): c.Expr[Unit] = {
     import c.universe._
 
-    reify {
+    /*reify {
       println(s"hello ${s.splice}!")
     }
 
@@ -154,7 +154,7 @@ object Macros {
           )
         )
       )
-    }
+    }*/
 
     c.Expr(q"""println("hello " + ${s.tree} + "!")""")
   }
